@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astro-Guardian: Ground Combat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #000; color: #fff; }
+        canvas { display: block; }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            cursor: none; /* Hide default cursor */
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allow mouse events to pass through to canvas */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 1.5rem; /* Increased padding */
+            box-sizing: border-box;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        .ui-panel {
+            background-color: rgba(0, 0, 0, 0.6); /* Slightly more opaque */
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.3); /* Stronger border */
+            backdrop-filter: blur(8px); /* Increased blur */
+            -webkit-backdrop-filter: blur(8px);
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #E0F2F7;
+            display: flex;
+            align-items: center;
+        }
+        .health-bar-container {
+            width: 100px; /* Fixed width for health bars */
+            height: 12px;
+            background-color: #444;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-left: 10px;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .health-bar {
+            height: 100%;
+            background-color: #4CAF50; /* Green */
+            width: 100%; /* Will be set by JS */
+            transition: width 0.2s ease-out;
+        }
+        #outpost-health-bar .health-bar {
+            background-color: #FFC107; /* Amber */
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px; /* Thinner lines */
+            height: 2px;
+            background-color: limegreen;
+            box-shadow: 0 0 8px limegreen; /* Stronger glow */
+            border-radius: 50%; /* Still a dot */
+            transform: translate(-50%, -50%); /* Center perfectly */
+            pointer-events: none;
+            display: none; /* Hidden by default */
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background-color: limegreen;
+        }
+        #crosshair::before {
+            width: 20px;
+            height: 2px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #crosshair::after {
+            width: 2px;
+            height: 20px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.9);
+            padding: 2.5rem 4rem;
+            border-radius: 1.5rem;
+            border: 3px solid #00BFFF;
+            text-align: center;
+            font-size: 1.8rem; /* Larger font */
+            color: #E0F2F7;
+            z-index: 1000;
+            display: none; /* Hidden by default */
+            box-shadow: 0 0 30px rgba(0, 191, 255, 0.9); /* Stronger glow */
+        }
+        #message-box button {
+            background-color: #00BFFF;
+            color: #000;
+            padding: 1rem 2rem; /* Larger button */
+            border: none;
+            border-radius: 0.75rem;
+            cursor: pointer;
+            font-size: 1.4rem; /* Larger font */
+            margin-top: 2rem;
+            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease;
+            font-weight: bold;
+        }
+        #message-box button:hover {
+            background-color: #009ACD;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 191, 255, 0.4);
+        }
+        #loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: #E0F2F7;
+            font-size: 2rem;
+            z-index: 2000;
+        }
+        #loading-screen p {
+            margin-top: 1rem;
+            font-size: 1.2rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-screen">
+        <p>Loading Game...</p>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui-overlay">
+            <div class="flex justify-between w-full">
+                <div id="player-health" class="ui-panel">
+                    Player Health: <span id="player-health-value"></span>
+                    <div class="health-bar-container">
+                        <div id="player-health-bar" class="health-bar"></div>
+                    </div>
+                </div>
+                <div id="score" class="ui-panel">Score: 0</div>
+            </div>
+            <div class="flex justify-between w-full">
+                <div id="outpost-health" class="ui-panel">
+                    Outpost Health: <span id="outpost-health-value"></span>
+                    <div class="health-bar-container">
+                        <div id="outpost-health-bar" class="health-bar"></div>
+                    </div>
+                </div>
+                <div id="wave-display" class="ui-panel">Wave: 0</div>
+            </div>
+            <div class="flex justify-center w-full mt-auto"> <!-- mt-auto pushes it to bottom -->
+                <div id="weapon-display" class="ui-panel">Weapon: Gun</div>
+                <div id="ammo-display" class="ui-panel ml-4">Ammo: 25 / 25</div> <!-- Added margin -->
+            </div>
+        </div>
+        <div id="crosshair"></div>
+    </div>
+
+    <div id="message-box">
+        <p id="message-text"></p>
+        <button id="restart-button">Restart Game</button>
+    </div>
+
+    <script>
+        // Global variables for Firebase config (if storage was needed, not used in this prototype)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- Game Variables ---
+        let scene, camera, renderer;
+        let player, outpost;
+        let teammate; // AI teammate object
+        let bullets = []; // Player bullets
+        let enemyBullets = []; // Enemy bullets
+        let teammateBullets = []; // Teammate bullets
+        let enemies = [];
+        let score = 0;
+        let wave = 0;
+        let playerHealth = 200; // Increased player health
+        let maxPlayerHealth = 200;
+        let outpostHealth = 100;
+        let maxOutpostHealth = 100;
+        let maxAmmo = 25;
+        let currentAmmo = maxAmmo;
+        let isReloading = false;
+        const reloadTime = 1.5; // seconds
+        let lastShotTime = 0;
+        const fireRate = 0.15; // seconds between gun shots
+
+        // Katana variables
+        let currentWeapon = 'gun'; // 'gun' or 'katana'
+        let lastMeleeTime = 0;
+        const meleeCooldown = 0.8; // seconds between katana swings
+        const meleeRange = 2.0; // How far katana can hit
+        const meleeArcAngle = Math.PI / 4; // Angle of katana swing (45 degrees)
+        const meleeDamage = 50;
+
+        // Player movement
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        const playerSpeed = 0.2;
+        const jumpForce = 0.8; // Increased jump force for taller jump
+        const gravity = 0.015; // Slightly reduced gravity for longer jump
+        let velocityY = 0;
+        let isGrounded = false; // Simplified ground check for jumping
+
+        // Mouse look
+        let isPointerLocked = false;
+        const sensitivity = 0.002;
+        let pitch = 0;
+        let yaw = 0;
+
+        // Teammate specific variables
+        const teammateFollowDistance = 5; // Distance behind player for teammate to follow
+        const teammateSpeed = 0.08; // Speed at which teammate follows the player
+
+        // Game state
+        let gameActive = false;
+
+        // UI elements
+        const playerHealthEl = document.getElementById('player-health');
+        const playerHealthValueEl = document.getElementById('player-health-value');
+        const playerHealthBarEl = document.getElementById('player-health-bar');
+        const outpostHealthEl = document.getElementById('outpost-health');
+        const outpostHealthValueEl = document.getElementById('outpost-health-value');
+        const outpostHealthBarEl = document.getElementById('outpost-health-bar');
+        const scoreEl = document.getElementById('score');
+        const ammoDisplayEl = document.getElementById('ammo-display');
+        const waveDisplayEl = document.getElementById('wave-display');
+        const weaponDisplayEl = document.getElementById('weapon-display');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+        const restartButton = document.getElementById('restart-button');
+        const loadingScreen = document.getElementById('loading-screen');
+        const gameContainer = document.getElementById('game-container');
+        const canvas = document.getElementById('gameCanvas');
+
+        // --- Initialization ---
+        window.onload = function() {
+            loadingScreen.style.display = 'none';
+            initGame();
+            animate(); // Start the animation loop
+        };
+
+        function initGame() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x101030); // Deep space blue
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.7, 0); // Player height
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -10;
+            directionalLight.shadow.camera.right = 10;
+            directionalLight.shadow.camera.top = 10;
+            directionalLight.shadow.camera.bottom = -10;
+            scene.add(directionalLight);
+
+            // Player (represented by the camera's position for FPS)
+            player = new THREE.Object3D();
+            player.add(camera);
+            scene.add(player);
+
+            // Outpost (Central fortress to protect)
+            const outpostGeometry = new THREE.BoxGeometry(7, 7, 7);
+            const outpostMaterial = new THREE.MeshLambertMaterial({ color: 0x6A5ACD }); // Slate blue
+            outpost = new THREE.Mesh(outpostGeometry, outpostMaterial);
+            outpost.position.set(0, 3.5, 0); // Centered on the ground
+            outpost.castShadow = true;
+            outpost.receiveShadow = true;
+            scene.add(outpost);
+            outpost.userData.isOutpost = true; // Tag for collision detection
+
+            // Teammate (AI controlled)
+            teammate = createTeammate(new THREE.Color(0x00BFFF)); // Cyan color for teammate
+            teammate.position.set(5, 1.7, 0); // Initial position near the outpost
+            scene.add(teammate);
+            teammate.userData.lastShotTime = 0; // Initialize last shot time for teammate
+            teammate.userData.fireRate = 1.0; // Teammate fires every 1 second
+            teammate.userData.attackRange = 40.0; // Teammate has long attack range
+            teammate.userData.bulletDamage = 100; // Teammate bullet damage (now one-shot kill)
+
+            // Ground plane (grassy)
+            const groundGeometry = new THREE.PlaneGeometry(100, 100);
+            const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x556B2F }); // Darker Olive green for ground
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = 0;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Simple distant mountains/hills
+            const mountainMaterial = new THREE.MeshLambertMaterial({ color: 0x4B5320 }); // Darker green
+            for (let i = 0; i < 20; i++) {
+                const mountainHeight = Math.random() * 15 + 5;
+                const mountainRadius = Math.random() * 10 + 5;
+                const mountainGeometry = new THREE.ConeGeometry(mountainRadius, mountainHeight, 8);
+                const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 40 + Math.random() * 30;
+                mountain.position.set(
+                    Math.cos(angle) * distance,
+                    mountainHeight / 2,
+                    Math.sin(angle) * distance
+                );
+                scene.add(mountain);
+            }
+
+            // Event Listeners
+            document.addEventListener('mousemove', onMouseMove, false);
+            document.addEventListener('keydown', onKeyDown, false);
+            document.addEventListener('keyup', onKeyUp, false);
+            document.addEventListener('click', onClick, false);
+
+            // Pointer Lock for FPS control
+            gameContainer.addEventListener('click', () => {
+                if (!isPointerLocked && gameActive) {
+                    gameContainer.requestPointerLock();
+                }
+            });
+
+            document.addEventListener('pointerlockchange', () => {
+                isPointerLocked = document.pointerLockElement === gameContainer;
+                document.getElementById('crosshair').style.display = isPointerLocked ? 'block' : 'none';
+                if (!isPointerLocked) {
+                    // If pointer lock is lost, pause game or show menu
+                    if (gameActive) showMessage("Game Paused", "Resume Game");
+                } else {
+                    if (messageBox.style.display === 'block') { // If message box was shown due to pause
+                        hideMessage();
+                    }
+                }
+            });
+
+            restartButton.addEventListener('click', () => {
+                hideMessage();
+                resetGame();
+                gameActive = true;
+                startNextWave();
+            });
+
+            resetGame(); // Initial reset
+            gameActive = true; // Start game immediately after init
+            startNextWave();
+
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Player Input ---
+        function onMouseMove(event) {
+            if (!isPointerLocked) return;
+
+            yaw -= event.movementX * sensitivity;
+            pitch -= event.movementY * sensitivity;
+
+            pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch)); // Clamp pitch (vertical look)
+
+            player.rotation.y = yaw;
+            camera.rotation.x = pitch;
+        }
+
+        function onKeyDown(event) {
+            if (!gameActive) return;
+            switch (event.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space':
+                    if (isGrounded) {
+                        velocityY = jumpForce;
+                        isGrounded = false;
+                    }
+                    break;
+                case 'KeyR': // Manual reload
+                    if (currentWeapon === 'gun' && currentAmmo < maxAmmo && !isReloading) {
+                        startReload();
+                    }
+                    break;
+                case 'KeyQ': // Toggle weapon
+                    toggleWeapon();
+                    break;
+            }
+        }
+
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        }
+
+        function onClick(event) {
+            if (!isPointerLocked || !gameActive) return;
+
+            if (event.button === 0) { // Left click
+                if (currentWeapon === 'gun') {
+                    fireBullet();
+                } else if (currentWeapon === 'katana') {
+                    performMeleeAttack();
+                }
+            }
+        }
+
+        // --- Game Logic ---
+        function updatePlayerMovement() {
+            // Apply gravity
+            if (!isGrounded) {
+                velocityY -= gravity;
+            } else {
+                velocityY = 0; // Reset vertical velocity if grounded
+            }
+            player.position.y += velocityY;
+
+            // Enforce ground collision: player must stay on y=1.7 (ground level for player)
+            if (player.position.y < 1.7) {
+                player.position.y = 1.7;
+                isGrounded = true;
+            }
+
+            // Horizontal movement
+            const direction = new THREE.Vector3();
+            // Get the player's forward and right vectors based on its current yaw rotation
+            // This ensures movement is relative to where the player is facing horizontally.
+            const playerEuler = new THREE.Euler(0, player.rotation.y, 0, 'XYZ'); // Only consider Y rotation
+            const playerForward = new THREE.Vector3(0, 0, -1).applyEuler(playerEuler);
+            const playerRight = new THREE.Vector3(1, 0, 0).applyEuler(playerEuler);
+
+            // Ensure these vectors are strictly horizontal (y=0) and normalized
+            playerForward.y = 0;
+            playerForward.normalize();
+            playerRight.y = 0;
+            playerRight.normalize();
+
+            if (moveForward) {
+                direction.add(playerForward);
+            }
+            if (moveBackward) {
+                direction.sub(playerForward);
+            }
+            if (moveLeft) {
+                direction.sub(playerRight);
+            }
+            if (moveRight) {
+                direction.add(playerRight);
+            }
+
+            // Normalize combined direction to prevent faster diagonal movement
+            if (direction.lengthSq() > 0) {
+                direction.normalize().multiplyScalar(playerSpeed);
+                player.position.add(direction);
+            }
+
+            // Clamp player position within bounds (e.g., a sphere around the outpost)
+            const maxDistance = 40; // Max distance from origin
+            const currentDistance = player.position.distanceTo(new THREE.Vector3(0, player.position.y, 0)); // Only horizontal distance
+            if (currentDistance > maxDistance) {
+                const normalizedPos = player.position.clone().setY(0).normalize();
+                player.position.x = normalizedPos.x * maxDistance;
+                player.position.z = normalizedPos.z * maxDistance;
+            }
+        }
+
+        function fireBullet() {
+            const now = performance.now() / 1000; // Time in seconds
+            if (isReloading) {
+                console.log("Cannot fire: Reloading.");
+                return;
+            }
+            // Check for fire rate cooldown
+            if (now - lastShotTime < fireRate) {
+                console.log("Cannot fire: On cooldown.");
+                return;
+            }
+
+            // If current ammo is 0, start reload and prevent firing
+            if (currentAmmo <= 0) {
+                console.log("Out of ammo! Initiating automatic reload.");
+                startReload();
+                return;
+            }
+
+            // If all checks pass, then fire
+            lastShotTime = now;
+            currentAmmo--; // Decrease ammo for visual feedback of magazine
+
+            // Get camera's world position for bullet spawn point
+            const bulletSpawnPoint = new THREE.Vector3();
+            camera.getWorldPosition(bulletSpawnPoint);
+
+            // Get camera's world forward direction for bullet velocity
+            const bulletDirection = new THREE.Vector3();
+            camera.getWorldDirection(bulletDirection);
+
+            const bulletGeometry = new THREE.SphereGeometry(0.3, 8, 8); // Radius 0.3
+            const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00, emissive: 0xFFFF00, emissiveIntensity: 1.5 }); // Bright yellow, glows
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+
+            bullet.position.copy(bulletSpawnPoint);
+            // Add a small offset *along the direction* to ensure it doesn't collide with player immediately
+            bullet.position.add(bulletDirection.clone().multiplyScalar(0.5)); // Use clone here to keep original direction for velocity
+
+            bullet.userData.velocity = bulletDirection.multiplyScalar(5.0); // Speed 5.0
+            bullet.userData.isBullet = true; // Tag for collision detection
+            bullet.userData.damage = 100; // Player bullet damage (one-shot kill)
+            scene.add(bullet);
+            bullets.push(bullet);
+
+            // Temporary visual indicator for bullet origin
+            const originMarkerGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const originMarkerMaterial = new THREE.MeshBasicMaterial({ color: 0x00FF00, transparent: true, opacity: 0.5 });
+            const originMarker = new THREE.Mesh(originMarkerGeometry, originMarkerMaterial);
+            originMarker.position.copy(bulletSpawnPoint);
+            scene.add(originMarker);
+            setTimeout(() => {
+                scene.remove(originMarker);
+            }, 200); // Show for a short duration
+
+            updateUI();
+        }
+
+        function startReload() {
+            isReloading = true;
+            ammoDisplayEl.textContent = `Ammo: Reloading...`;
+            setTimeout(() => {
+                currentAmmo = maxAmmo; // Replenish ammo
+                isReloading = false;
+                updateUI();
+            }, reloadTime * 1000);
+        }
+
+        function toggleWeapon() {
+            if (currentWeapon === 'gun') {
+                currentWeapon = 'katana';
+            } else {
+                currentWeapon = 'gun';
+            }
+            updateUI();
+            console.log(`Switched to: ${currentWeapon}`);
+        }
+
+        function performMeleeAttack() {
+            const now = performance.now() / 1000;
+            if (now - lastMeleeTime < meleeCooldown) {
+                console.log("Katana on cooldown!");
+                return;
+            }
+            lastMeleeTime = now;
+
+            // Visual feedback for katana swing (temporary blade)
+            const bladeGeometry = new THREE.BoxGeometry(0.1, 0.05, meleeRange);
+            const bladeMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.3 });
+            const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+            blade.position.copy(player.position);
+            blade.quaternion.copy(camera.quaternion); // Align with camera direction
+            blade.position.add(new THREE.Vector3(0, 0, -meleeRange / 2).applyQuaternion(camera.quaternion)); // Position in front
+            scene.add(blade);
+            setTimeout(() => {
+                scene.remove(blade);
+            }, 150); // Blade visible for 150ms
+
+            const playerForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const playerPosition = player.position.clone();
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                const enemyPosition = enemy.position.clone();
+
+                // Check distance
+                if (playerPosition.distanceTo(enemyPosition) <= meleeRange) {
+                    // Check if enemy is within the forward arc
+                    const directionToEnemy = new THREE.Vector3().subVectors(enemyPosition, playerPosition).normalize();
+                    const angle = playerForward.angleTo(directionToEnemy);
+
+                    if (angle < meleeArcAngle) {
+                        enemy.userData.health -= meleeDamage;
+                        if (enemy.userData.health <= 0) {
+                            scene.remove(enemy);
+                            enemies.splice(i, 1);
+                            score += enemy.userData.scoreValue;
+                        } else {
+                            // Simple hit feedback (e.g., flash red)
+                            enemy.traverse(child => {
+                                if (child.isMesh) {
+                                    child.material.color.set(0xFF0000);
+                                    setTimeout(() => child.material.color.set(enemy.userData.originalColor), 100);
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        function updateBullets() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                bullet.position.add(bullet.userData.velocity);
+
+                // Remove bullets that go too far
+                if (bullet.position.distanceTo(player.position) > 50) {
+                    scene.remove(bullet);
+                    bullets.splice(i, 1);
+                    continue;
+                }
+
+                // Check for collision with enemies
+                let hitEnemy = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    // Collision check: distance between bullet center and enemy center vs. sum of their radii
+                    if (bullet.position.distanceTo(enemy.position) < enemy.userData.radius + bullet.geometry.parameters.radius) {
+                        hitEnemy = true;
+                        enemy.userData.health -= bullet.userData.damage; // Use bullet's damage property
+                        console.log(`Bullet hit enemy! Enemy health: ${enemy.userData.health}`); // Debug log
+                        if (enemy.userData.health <= 0) {
+                            scene.remove(enemy);
+                            enemies.splice(j, 1);
+                            score += enemy.userData.scoreValue;
+                        } else {
+                            // Simple hit feedback (e.g., flash red)
+                            enemy.traverse(child => {
+                                if (child.isMesh) {
+                                    child.material.color.set(0xFF0000);
+                                    setTimeout(() => child.material.color.set(enemy.userData.originalColor), 100);
+                                }
+                            });
+                        }
+                        break; // Bullet hits only one enemy
+                    }
+                }
+
+                if (hitEnemy) {
+                    scene.remove(bullet);
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+
+        // Function for enemies to fire bullets
+        function fireEnemyBullet(enemy) {
+            const now = performance.now() / 1000;
+            if (now - enemy.userData.lastShotTime > enemy.userData.fireRate) {
+                enemy.userData.lastShotTime = now;
+
+                const bulletGeometry = new THREE.SphereGeometry(0.2, 8, 8); // Smaller, red bullet
+                const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF0000, emissive: 0xFF0000, emissiveIntensity: 1.0 });
+                const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+
+                // Position bullet at enemy's position, slightly offset
+                bullet.position.copy(enemy.position);
+                bullet.position.y += 1.0; // Shoot from chest height
+
+                // Direction towards target (player or outpost)
+                const targetPosition = playerHealth > 0 ? player.position : outpost.position;
+                const bulletDirection = new THREE.Vector3().subVectors(targetPosition, bullet.position).normalize();
+                bullet.userData.velocity = bulletDirection.multiplyScalar(3.0); // Enemy bullet speed
+                bullet.userData.isEnemyBullet = true;
+                bullet.userData.damage = 10; // Enemy bullet damage
+                scene.add(bullet);
+                enemyBullets.push(bullet);
+            }
+        }
+
+        function updateEnemyBullets() {
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const bullet = enemyBullets[i];
+                bullet.position.add(bullet.userData.velocity);
+
+                // Remove bullets that go too far
+                if (bullet.position.distanceTo(player.position) > 50 && bullet.position.distanceTo(outpost.position) > 50) {
+                    scene.remove(bullet);
+                    enemyBullets.splice(i, 1);
+                    continue;
+                }
+
+                // Check for collision with player
+                // Player is represented by the camera's position, so we use a small radius for collision
+                if (bullet.position.distanceTo(player.position) < 0.5 + bullet.geometry.parameters.radius) {
+                    playerHealth -= bullet.userData.damage; // Use bullet's damage property
+                    scene.remove(bullet);
+                    enemyBullets.splice(i, 1);
+                    updateUI();
+                    if (playerHealth <= 0) {
+                        gameOver("You were defeated!");
+                        return;
+                    }
+                    continue;
+                }
+
+                // Check for collision with outpost
+                // Outpost is a BoxGeometry, so we use its half-width for collision radius
+                if (bullet.position.distanceTo(outpost.position) < outpost.geometry.parameters.width / 2 + bullet.geometry.parameters.radius) {
+                    outpostHealth -= bullet.userData.damage; // Use bullet's damage property
+                    scene.remove(bullet);
+                    enemyBullets.splice(i, 1);
+                    updateUI();
+                    if (outpostHealth <= 0) {
+                        gameOver("Outpost Destroyed!");
+                        return;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        /**
+         * Creates a generic ground enemy with a simple humanoid shape.
+         * @param {string} type - 'melee' or 'ranged'. Determines enemy behavior.
+         * @param {THREE.Color} originalColor - The base color for the enemy.
+         * @returns {THREE.Group} The enemy object (a THREE.Group).
+         */
+        function createGroundEnemy(type, originalColor) {
+            const enemyGroup = new THREE.Group();
+            let radius; // Overall effective radius for collision
+
+            // Body
+            const bodyGeometry = new THREE.BoxGeometry(1.0, 1.5, 0.5);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: originalColor });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.75; // Half of height to sit on ground
+            enemyGroup.add(body);
+
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.4, 8, 8);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: originalColor.clone().multiplyScalar(0.8) });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 1.8;
+            enemyGroup.add(head);
+
+            // Arms (simple boxes)
+            const armGeometry = new THREE.BoxGeometry(0.2, 1.0, 0.2);
+            const armMaterial = new THREE.MeshLambertMaterial({ color: originalColor.clone().multiplyScalar(0.7) });
+
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.6, 1.0, 0);
+            enemyGroup.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.6, 1.0, 0);
+            enemyGroup.add(rightArm);
+
+            // Legs (simple boxes)
+            const legGeometry = new THREE.BoxGeometry(0.3, 1.0, 0.3);
+            const legMaterial = new THREE.MeshLambertMaterial({ color: originalColor.clone().multiplyScalar(0.7) });
+
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(-0.3, 0.25, 0);
+            enemyGroup.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(0.3, 0.25, 0);
+            enemyGroup.add(rightLeg);
+
+            // Set enemy properties based on type
+            enemyGroup.userData.type = type;
+            enemyGroup.userData.originalColor = originalColor.clone(); // Store original color for hit feedback
+
+            // All enemies now have 100 health for one-shot kill with player gun
+            enemyGroup.userData.health = 100;
+            radius = 1.0; // Effective collision radius for all enemy types
+
+            if (type === 'melee') {
+                enemyGroup.userData.speed = 0.05;
+                enemyGroup.userData.damage = 20;
+                enemyGroup.userData.attackCooldown = 1.5; // seconds
+                enemyGroup.userData.lastAttackTime = 0;
+                enemyGroup.userData.attackRange = 2.0; // How close enemy needs to be to attack
+                enemyGroup.userData.scoreValue = 10;
+            } else if (type === 'ranged') {
+                enemyGroup.userData.speed = 0.03;
+                enemyGroup.userData.damage = 10; // Per bullet
+                enemyGroup.userData.fireRate = 2.0; // seconds between shots
+                enemyGroup.userData.lastShotTime = 0;
+                enemyGroup.userData.attackRange = 15.0; // Range at which enemy starts shooting
+                enemyGroup.userData.scoreValue = 15;
+            }
+
+            enemyGroup.userData.radius = radius; // Store radius for collision detection
+            enemyGroup.castShadow = true;
+            enemyGroup.receiveShadow = true;
+
+            return enemyGroup;
+        }
+
+        /**
+         * Creates the AI teammate object.
+         * @param {THREE.Color} color - The color for the teammate.
+         * @returns {THREE.Group} The teammate object (a THREE.Group).
+         */
+        function createTeammate(color) {
+            const teammateGroup = new THREE.Group();
+
+            // Body
+            const bodyGeometry = new THREE.BoxGeometry(1.0, 1.5, 0.5);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: color });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.75;
+            teammateGroup.add(body);
+
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.4, 8, 8);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.8) });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 1.8;
+            teammateGroup.add(head);
+
+            // Arms
+            const armGeometry = new THREE.BoxGeometry(0.2, 1.0, 0.2);
+            const armMaterial = new THREE.MeshLambertMaterial({ color: color.clone().multiplyScalar(0.7) });
+
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.6, 1.0, 0);
+            teammateGroup.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.6, 1.0, 0);
+            teammateGroup.add(rightArm);
+
+            teammateGroup.castShadow = true;
+            teammateGroup.receiveShadow = true;
+
+            return teammateGroup;
+        }
+
+        /**
+         * Updates the state and behavior of all enemies in the scene.
+         * Enemies will pursue either the player or the outpost, and attack when in range.
+         */
+        function updateEnemies() {
+            const now = performance.now() / 1000; // Current time in seconds
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                let targetPosition;
+
+                // Determine target: player if alive, otherwise outpost
+                if (playerHealth > 0) {
+                    targetPosition = player.position.clone();
+                } else {
+                    targetPosition = outpost.position.clone();
+                }
+
+                // Direction and distance to target
+                const directionToTarget = new THREE.Vector3().subVectors(targetPosition, enemy.position);
+                const distanceToTarget = directionToTarget.length();
+                directionToTarget.normalize();
+
+                // Make enemy face the target (only yaw rotation)
+                const angle = Math.atan2(directionToTarget.x, directionToTarget.z);
+                enemy.rotation.y = angle;
+
+                // Move enemy towards target if outside attack range
+                if (distanceToTarget > enemy.userData.attackRange) {
+                    enemy.position.add(directionToTarget.multiplyScalar(enemy.userData.speed));
+                }
+
+                // Perform attack if within range and cooldown is met
+                if (distanceToTarget <= enemy.userData.attackRange) {
+                    if (enemy.userData.type === 'melee') {
+                        if (now - enemy.userData.lastAttackTime > enemy.userData.attackCooldown) {
+                            enemy.userData.lastAttackTime = now;
+                            // Melee attack logic: reduce health of target
+                            if (playerHealth > 0 && targetPosition === player.position) {
+                                playerHealth -= enemy.userData.damage;
+                                console.log(`Player hit by melee enemy! Health: ${playerHealth}`);
+                                updateUI();
+                                if (playerHealth <= 0) {
+                                    gameOver("You were defeated!");
+                                    return; // Exit to prevent further updates if game over
+                                }
+                            } else if (targetPosition === outpost.position) {
+                                outpostHealth -= enemy.userData.damage;
+                                console.log(`Outpost hit by melee enemy! Health: ${outpostHealth}`);
+                                updateUI();
+                                if (outpostHealth <= 0) {
+                                    gameOver("Outpost Destroyed!");
+                                    return; // Exit to prevent further updates if game over
+                                }
+                            }
+                        }
+                    } else if (enemy.userData.type === 'ranged') {
+                        fireEnemyBullet(enemy);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Updates the AI teammate's behavior.
+         * The teammate will target the closest enemy and fire at it, and also follow the player.
+         */
+        function updateTeammate() {
+            const now = performance.now() / 1000;
+
+            // Teammate following logic
+            // Calculate desired position behind the player based on player's current orientation
+            const playerForwardVector = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, player.rotation.y, 0, 'XYZ'));
+            const desiredTeammatePosition = player.position.clone().sub(playerForwardVector.multiplyScalar(teammateFollowDistance));
+            desiredTeammatePosition.y = 1.7; // Keep teammate on the ground
+
+            // Move teammate towards desired position
+            const currentTeammatePosition = teammate.position;
+            const moveVector = new THREE.Vector3().subVectors(desiredTeammatePosition, currentTeammatePosition);
+            
+            // Only move if the teammate is a certain distance away from the desired position
+            if (moveVector.length() > 0.5) { // Added a small threshold to prevent jittering
+                moveVector.normalize().multiplyScalar(teammateSpeed);
+                teammate.position.add(moveVector);
+            }
+
+
+            // Teammate attacking logic
+            if (enemies.length === 0) {
+                // No enemies to target, teammate can just face forward or idle
+                return;
+            }
+
+            // Find the closest enemy
+            let closestEnemy = null;
+            let minDistance = Infinity;
+
+            for (const enemy of enemies) {
+                const distance = teammate.position.distanceTo(enemy.position);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestEnemy = enemy;
+                }
+            }
+
+            if (closestEnemy) {
+                // Make teammate face the closest enemy
+                const directionToEnemy = new THREE.Vector3().subVectors(closestEnemy.position, teammate.position).normalize();
+                const angle = Math.atan2(directionToEnemy.x, directionToEnemy.z);
+                teammate.rotation.y = angle;
+
+                // Fire at enemy if within attack range and cooldown allows
+                if (minDistance <= teammate.userData.attackRange && now - teammate.userData.lastShotTime > teammate.userData.fireRate) {
+                    teammate.userData.lastShotTime = now;
+                    fireTeammateBullet(teammate, closestEnemy.position);
+                }
+            }
+        }
+
+        /**
+         * Fires a bullet from the teammate towards a target.
+         * @param {THREE.Object3D} source - The teammate object firing the bullet.
+         * @param {THREE.Vector3} targetPosition - The position to aim at.
+         */
+        function fireTeammateBullet(source, targetPosition) {
+            const bulletGeometry = new THREE.SphereGeometry(0.2, 8, 8); // Smaller, blue bullet
+            const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0x00FFFF, emissive: 0x00FFFF, emissiveIntensity: 1.0 });
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+
+            bullet.position.copy(source.position);
+            bullet.position.y += 1.0; // Shoot from chest height of teammate
+
+            const bulletDirection = new THREE.Vector3().subVectors(targetPosition, bullet.position).normalize();
+            bullet.userData.velocity = bulletDirection.multiplyScalar(4.0); // Teammate bullet speed
+            bullet.userData.isTeammateBullet = true;
+            bullet.userData.damage = source.userData.bulletDamage; // Teammate bullet damage
+            scene.add(bullet);
+            teammateBullets.push(bullet);
+        }
+
+        /**
+         * Updates the state of all teammate bullets.
+         * Checks for collisions with enemies and removes bullets that go out of bounds.
+         */
+        function updateTeammateBullets() {
+            for (let i = teammateBullets.length - 1; i >= 0; i--) {
+                const bullet = teammateBullets[i];
+                bullet.position.add(bullet.userData.velocity);
+
+                // Remove bullets that go too far
+                if (bullet.position.distanceTo(teammate.position) > 60) {
+                    scene.remove(bullet);
+                    teammateBullets.splice(i, 1);
+                    continue;
+                }
+
+                // Check for collision with enemies
+                let hitEnemy = false;
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    if (bullet.position.distanceTo(enemy.position) < enemy.userData.radius + bullet.geometry.parameters.radius) {
+                        hitEnemy = true;
+                        enemy.userData.health -= bullet.userData.damage; // Use bullet's damage property
+                        console.log(`Teammate bullet hit enemy! Enemy health: ${enemy.userData.health}`);
+                        if (enemy.userData.health <= 0) {
+                            scene.remove(enemy);
+                            enemies.splice(j, 1);
+                            score += enemy.userData.scoreValue; // Teammate kills still add to player score
+                        } else {
+                            // Simple hit feedback (e.g., flash red)
+                            enemy.traverse(child => {
+                                if (child.isMesh) {
+                                    child.material.color.set(0xFF0000);
+                                    setTimeout(() => child.material.color.set(enemy.userData.originalColor), 100);
+                                }
+                            });
+                        }
+                        break; // Bullet hits only one enemy
+                    }
+                }
+
+                if (hitEnemy) {
+                    scene.remove(bullet);
+                    teammateBullets.splice(i, 1);
+                }
+            }
+        }
+
+
+        /**
+         * Spawns a new wave of enemies. The number and type of enemies scale with the wave number.
+         */
+        function startNextWave() {
+            wave++;
+            waveDisplayEl.textContent = `Wave: ${wave}`;
+            console.log(`Starting Wave ${wave}`);
+
+            // Clear any remaining enemies from previous wave
+            enemies.forEach(enemy => scene.remove(enemy));
+            enemies = [];
+
+            // Spawn enemies based on wave number
+            const numMeleeEnemies = Math.floor(wave * 1.5) + 3; // More melee as waves increase
+            const numRangedEnemies = Math.floor(wave * 0.5) + (wave > 1 ? 1 : 0); // Ranged enemies appear later and less frequently
+
+            // Spawn melee enemies
+            for (let i = 0; i < numMeleeEnemies; i++) {
+                const enemy = createGroundEnemy('melee', new THREE.Color(0x8B0000)); // Dark red for melee
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 25 + Math.random() * 15; // Spawn further away
+                enemy.position.set(
+                    Math.cos(angle) * distance,
+                    enemy.userData.radius, // Ensure enemy is on the ground
+                    Math.sin(angle) * distance
+                );
+                scene.add(enemy);
+                enemies.push(enemy);
+            }
+
+            // Spawn ranged enemies
+            for (let i = 0; i < numRangedEnemies; i++) {
+                const enemy = createGroundEnemy('ranged', new THREE.Color(0x006400)); // Dark green for ranged
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 30 + Math.random() * 20; // Spawn even further away
+                enemy.position.set(
+                    Math.cos(angle) * distance,
+                    enemy.userData.radius, // Ensure enemy is on the ground
+                    Math.sin(angle) * distance
+                );
+                scene.add(enemy);
+                enemies.push(enemy);
+            }
+        }
+
+        /**
+         * Updates the user interface elements to reflect current game stats.
+         */
+        function updateUI() {
+            playerHealthValueEl.textContent = `${Math.max(0, playerHealth)} / ${maxPlayerHealth}`;
+            playerHealthBarEl.style.width = `${(playerHealth / maxPlayerHealth) * 100}%`;
+            playerHealthBarEl.style.backgroundColor = playerHealth > maxPlayerHealth / 2 ? '#4CAF50' : (playerHealth > maxPlayerHealth / 4 ? '#FFC107' : '#F44336'); // Green, Amber, Red
+
+            outpostHealthValueEl.textContent = `${Math.max(0, outpostHealth)} / ${maxOutpostHealth}`;
+            outpostHealthBarEl.style.width = `${(outpostHealth / maxOutpostHealth) * 100}%`;
+            outpostHealthBarEl.style.backgroundColor = outpostHealth > maxOutpostHealth / 2 ? '#FFC107' : '#F44336'; // Amber, Red
+
+            scoreEl.textContent = `Score: ${score}`;
+            ammoDisplayEl.textContent = `Ammo: ${isReloading ? 'Reloading...' : `${currentAmmo} / ${maxAmmo}`}`;
+            weaponDisplayEl.textContent = `Weapon: ${currentWeapon.charAt(0).toUpperCase() + currentWeapon.slice(1)}`;
+            waveDisplayEl.textContent = `Wave: ${wave}`;
+        }
+
+        /**
+         * Displays a message box to the user, typically for game over or pause.
+         * @param {string} message - The main message to display.
+         * @param {string} buttonText - The text for the restart/resume button.
+         */
+        function showMessage(message, buttonText) {
+            gameActive = false;
+            messageText.textContent = message;
+            restartButton.textContent = buttonText;
+            messageBox.style.display = 'block';
+            document.exitPointerLock(); // Release pointer lock when message box is shown
+        }
+
+        /**
+         * Hides the message box.
+         */
+        function hideMessage() {
+            messageBox.style.display = 'none';
+            // Game active state is managed by pointerlockchange listener or restart button
+        }
+
+        /**
+         * Handles the game over condition, stopping the game and showing a message.
+         * @param {string} reason - The reason for game over.
+         */
+        function gameOver(reason) {
+            gameActive = false;
+            showMessage(`Game Over! ${reason} Your Score: ${score}`, "Restart Game");
+            // Clear all enemies and bullets from scene
+            enemies.forEach(enemy => scene.remove(enemy));
+            enemies = [];
+            bullets.forEach(bullet => scene.remove(bullet));
+            bullets = [];
+            enemyBullets.forEach(bullet => scene.remove(bullet));
+            enemyBullets = [];
+            teammateBullets.forEach(bullet => scene.remove(bullet)); // Clear teammate bullets
+            teammateBullets = [];
+        }
+
+        /**
+         * Resets all game variables to their initial state.
+         */
+        function resetGame() {
+            playerHealth = maxPlayerHealth;
+            outpostHealth = maxOutpostHealth;
+            score = 0;
+            wave = 0;
+            currentAmmo = maxAmmo;
+            isReloading = false;
+            lastShotTime = 0;
+            lastMeleeTime = 0;
+            currentWeapon = 'gun';
+
+            // Clear all existing enemies and bullets from the scene
+            enemies.forEach(enemy => scene.remove(enemy));
+            enemies = [];
+            bullets.forEach(bullet => scene.remove(bullet));
+            bullets = [];
+            enemyBullets.forEach(bullet => scene.remove(bullet));
+            enemyBullets = [];
+            teammateBullets.forEach(bullet => scene.remove(bullet)); // Clear teammate bullets
+            teammateBullets = [];
+
+            // Reset player position and orientation
+            player.position.set(0, 1.7, 10); // Start player slightly away from outpost
+            player.rotation.y = 0;
+            camera.rotation.x = 0;
+            pitch = 0;
+            yaw = 0;
+            velocityY = 0;
+            isGrounded = true;
+
+            // Reset teammate position (relative to new player position)
+            teammate.position.set(player.position.x + teammateFollowDistance, 1.7, player.position.z);
+            teammate.rotation.y = player.rotation.y;
+
+
+            updateUI();
+            hideMessage(); // Ensure message box is hidden on reset
+        }
+
+        /**
+         * The main animation loop for the game.
+         * Continuously updates game state and renders the scene.
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameActive) {
+                updatePlayerMovement();
+                updateBullets();
+                updateEnemyBullets();
+                updateTeammateBullets(); // Update teammate bullets
+                updateEnemies(); // Update enemy positions and actions
+                updateTeammate(); // Update teammate AI
+
+                // Check if all enemies are defeated to start next wave
+                if (enemies.length === 0 && playerHealth > 0 && outpostHealth > 0) {
+                    startNextWave();
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
