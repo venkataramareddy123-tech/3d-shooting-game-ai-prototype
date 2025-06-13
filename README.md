@@ -1,5 +1,5 @@
 # 3d-shooting-game-ai-prototype
-A 3D first-person AI shooting game prototype with health tracking, weapon switching, ammo system, and difficulty scaling
+A 3D first-person AI shooting game prototype with health tracking, weapon switching, ammo system, AI companion and difficulty scaling
 # 🔫 3D Shooting Game AI Prototype
 
 This is a 3D first-person shooting game prototype designed and built using Gemini (AI-powered Game Builder). It demonstrates my understanding of game logic, AI behavior, difficulty scaling, and health/ammo systems.
